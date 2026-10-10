@@ -17,7 +17,7 @@ Mở `/admin`. Endpoint `/healthz` dùng cho readiness.
 
 - `POST /api/admin/login` — `{ username, password }`
 - `GET /api/admin/overview`, `GET /api/admin/keys?search=&status=`
-- `POST /api/admin/keys` — `{ prefix, expiresAt, note }`
+- `POST /api/admin/keys` — `{ prefix, expiresAt, note }`; admin UI cung cấp sẵn 24 giờ, 48 giờ, 7 ngày, 30 ngày và vĩnh viễn.
 - `PATCH /api/admin/keys/:id` — `{ status, note, expiresAt }`
 - `DELETE /api/admin/keys/:id` — revoke mềm, giữ audit trail
 - `POST /api/admin/keys/:id/reset-hwid`
