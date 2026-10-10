@@ -1,23 +1,2 @@
 {
-  "name": "roblox-key-system",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Production Roblox script hub key licensing server",
-  "type": "module",
-  "engines": { "node": ">=20" },
-  "scripts": { "start": "node src/server.js", "dev": "node --watch src/server.js", "test": "node --test", "hash-password": "node scripts/hash-password.js" },
-  "dependencies": {
-    "bcrypt": "^6.0.0",
-    "better-sqlite3": "^11.8.1",
-    "cookie-parser": "^1.4.7",
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
-    "express-rate-limit": "^7.5.0",
-    "helmet": "^8.0.0",
-    "jsonwebtoken": "^9.0.2",
-    "pg": "^8.13.1",
-    "pino": "^9.6.0",
-    "pino-http": "^10.4.0",
-    "uuid": "^11.0.5"
-  }
-}
+  "name":"roblox-key-system","version":"2.0.0","private":true,"type":"module","engines":{"node":">=20"},"scripts":{"start":"node app.js","dev":"node --watch app.js","test":"node --test"},"dependencies":{"bcrypt":"^6.0.0","better-sqlite3":"^11.8.1","cookie-parser":"^1.4.7","dotenv":"^16.4.7","express":"^4.21.2","express-rate-limit":"^7.5.0","helmet":"^8.0.0","jsonwebtoken":"^9.0.2"}}
