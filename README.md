@@ -1,42 +1,43 @@
-# Key System Control Center
+# KeyForge — Secure License Infrastructure
 
-Hệ thống cấp key server-authoritative cho game, gồm admin panel, one-user/one-HWID/one-key binding, gate claim và API verify.
+KeyForge là hệ thống quản lý license key hoạt động trên React/Express/tRPC/Drizzle, có database MySQL managed, public activation gate và dashboard admin dark premium.
 
-## Chạy
+## Tính năng
 
-Project dùng managed MySQL qua `DATABASE_URL`. Các secret protected cần có trên runtime: `ADMIN_PASSWORD`, `JWT_SECRET`, `HMAC_SECRET`, `KEY_SALT`. Không commit `.env` hoặc giá trị secret. Tài khoản admin cố định là `quochoa`; mật khẩu không nằm trong source.
+- Tạo key duy nhất với nhãn, giới hạn lượt dùng và thời hạn.
+- Kích hoạt công khai theo fingerprint thiết bị, trả kết quả rõ ràng cho key không hợp lệ, hết hạn, hết lượt hoặc bị thu hồi.
+- Dashboard admin với thống kê, tìm kiếm, lọc trạng thái, chỉnh sửa, revoke, xóa key và audit activation.
+- Đăng nhập admin bằng **ADMIN_PASSWORD runtime secret**; mật khẩu không nằm trong source code, `.env`, commit hoặc lịch sử Git.
+- Manus OAuth vẫn được hỗ trợ cho tài khoản admin đã được provision qua role trong database.
+
+## Chạy local
 
 ```bash
-npm ci
-npm start
+pnpm install
+pnpm db:migrate
+pnpm dev
 ```
 
-Mở `/admin`. Endpoint `/healthz` dùng cho readiness.
+Ứng dụng chạy tại `http://localhost:3000`. Health check: `GET /api/health`.
 
-## API
+## Environment
 
-- `POST /api/admin/login` — `{ username, password }`
-- `GET /api/admin/overview`, `GET /api/admin/keys?search=&status=`
-- `POST /api/admin/keys` — `{ prefix, expiresAt, note }`; admin UI cung cấp sẵn 24 giờ, 48 giờ, 7 ngày, 30 ngày và vĩnh viễn.
-- `PATCH /api/admin/keys/:id` — `{ status, note, expiresAt }`
-- `DELETE /api/admin/keys/:id` — revoke mềm, giữ audit trail
-- `POST /api/admin/keys/:id/reset-hwid`
-- `POST /api/admin/blacklist` — `{ hwid, reason }`
-- `POST /api/gate/start` — `{ hwid, userId }`
-- `POST /api/gate/claim` — `{ sessionId }`; cấp key active chưa bind, ngẫu nhiên, đúng một lần
-- `POST /api/client/validate` — cần sessionId, key, hwid, userId và HMAC headers
+Copy `.env.example` thành `.env` trong môi trường local và điền các giá trị secret. Không commit `.env` hoặc secret thật.
 
-## HMAC relay
+- `DATABASE_URL`: MySQL connection string.
+- `MANUS_PROJECT_ID`, `MANUS_JWT_SECRET`, `MANUS_OAUTH_API_URL`: giá trị do Manus runtime cung cấp.
+- `ADMIN_PASSWORD`: mật khẩu đăng nhập khu vực admin, chỉ cấu hình qua secret manager hoặc environment runtime.
 
-`HMAC_SECRET` là server secret, không được nhúng vào Luau/executor/client. Vì vậy client game phải gọi backend relay của chính bạn; relay đọc secret từ secret manager, tạo canonical string và forward request đến endpoint verify. Canonical:
+Trong môi trường WebDev managed, `ADMIN_PASSWORD` đã được khai báo dưới dạng protected secret. Session admin dùng cookie `HttpOnly`, `Secure`, `SameSite=None`, tự hết hạn sau 8 giờ và được ký bằng `MANUS_JWT_SECRET`.
 
-```text
-METHOD + "\\n" + PATH + "\\n" + X-Timestamp + "\\n" + X-Nonce + "\\n" + sha256(JSON.stringify(body))
-signature = hex(hmac_sha256(HMAC_SECRET, canonical))
+## Kiểm tra
+
+```bash
+pnpm check
+pnpm test
+pnpm build
 ```
 
-Server cũng kiểm tra nonce unique, timestamp lệch tối đa 120 giây, IP gate, session, key hash, expiry, blacklist, HWID và userId. Database chỉ lưu hash/masked key. Raw key chỉ xuất hiện khi admin tạo hoặc gate claim, không thể lấy lại từ database.
+## GitHub
 
-## Chống bypass — giới hạn thực tế
-
-Quyền load script được quyết định bởi server, không phải một boolean tin cậy từ client. Tuy nhiên, không có cách chống tuyệt đối việc patch một client/executor mà người dùng kiểm soát: họ có thể giả lập request hoặc sửa script cục bộ. Không gửi secret server cho client, bắt relay ký, giữ script nhạy cảm ở server và kiểm tra lại định kỳ để giảm rủi ro.
+Repository này giữ lại một số file legacy từ các phiên bản key-system trước để bảo toàn lịch sử. Runtime hiện tại dùng entrypoint trong `server/_core/index.ts`, frontend trong `client/` và schema/migration trong `drizzle/`.
