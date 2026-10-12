@@ -160,6 +160,16 @@ export async function listKeyActivations(keyId?: number, limit = 100) {
   return db.collection<KeyActivation>("keyActivations").find(filter).sort({ createdAt: -1 }).limit(limit).toArray();
 }
 
+export async function getActivationByDevice(keyId: number, deviceId: string) {
+  const db = await requireDb();
+  return db.collection<KeyActivation>("keyActivations").findOne({ keyId, fingerprint: deviceId });
+}
+
+export async function touchActivation(id: number) {
+  const db = await requireDb();
+  await db.collection<KeyActivation>("keyActivations").updateOne({ id }, { $set: { lastSeenAt: new Date() } });
+}
+
 export async function activateLicenseKey(input: { key: string; fingerprint: string; ipAddress?: string | null; userAgent?: string | null }) {
   const db = await requireDb();
   const keys = db.collection<LicenseKey>("licenseKeys");

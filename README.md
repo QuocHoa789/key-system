@@ -50,6 +50,18 @@ Password có ký tự đặc biệt phải URL-encode. Database user nên chỉ 
 
 Render tự cấp `PORT`; server bind trên `0.0.0.0` và không hard-code port production.
 
+## License REST API
+
+Ba endpoint dành cho ứng dụng client/desktop/game:
+
+```text
+POST /api/v1/license/verify
+POST /api/v1/license/activate
+POST /api/v1/license/heartbeat
+```
+
+Request verify/activate dùng `{ "key": "...", "deviceId": "..." }`. `verify` chỉ kiểm tra và không trừ lượt; `activate` bind key với device, ghi audit và trả `licenseToken` signed có thời hạn 30 phút. Heartbeat dùng `{ "licenseToken": "...", "deviceId": "..." }` để kiểm tra token, trạng thái revoke/expiry và device binding. Các endpoint có rate limit riêng.
+
 ## Kiểm tra
 
 ```bash

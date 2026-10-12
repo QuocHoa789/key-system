@@ -39,6 +39,7 @@ export interface KeyActivation {
   ipAddress: string | null;
   userAgent: string | null;
   createdAt: Date;
+  lastSeenAt?: Date;
 }
 
 export type InsertKeyActivation = Omit<KeyActivation, "id" | "createdAt">;

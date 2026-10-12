@@ -8,6 +8,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { publicPlatformScript } from "./publicConfig";
 import { appRouter } from "../routers";
+import { registerLicenseApi } from "../licenseApi";
 import { createContext } from "./context";
 import { ENV } from "./env";
 import { serveStatic, setupVite } from "./vite";
@@ -94,6 +95,7 @@ async function startServer() {
   app.use("/api", apiRateLimit);
   app.use("/api/trpc/admin.login", loginRateLimit);
   app.use("/api/trpc/keys.activate", activationRateLimit);
+  registerLicenseApi(app);
   registerOAuthRoutes(app);
   app.use(
     "/api/trpc",
