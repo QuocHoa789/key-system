@@ -113,7 +113,7 @@ function PublicActivation() {
         <label className="field-label" htmlFor="license-key">LICENSE KEY</label>
         <div className="key-input-wrap">
           <KeyRound size={18} />
-          <input id="license-key" value={keyValue} onChange={event => setKeyValue(event.target.value.toUpperCase())} placeholder="KF-XXXX-XXXX-XXXX" autoComplete="off" spellCheck={false} />
+          <input id="license-key" value={keyValue} onChange={event => setKeyValue(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 24))} placeholder="24 ký tự A-Z / 0-9" maxLength={24} autoComplete="off" spellCheck={false} />
           <span className="input-hint">AES-256</span>
         </div>
         <Button type="submit" className="activate-button" disabled={activation.isPending || !keyValue.trim()}>

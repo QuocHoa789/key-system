@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomInt } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
@@ -20,9 +20,10 @@ import { COOKIE_NAME } from "@shared/const";
 const statusSchema = z.enum(["unactivated", "active", "exhausted", "expired", "revoked"]);
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
+const KEY_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
 function generateKey() {
-  const part = () => randomBytes(4).toString("hex").toUpperCase();
-  return `KF-${part()}-${part()}-${part()}`;
+  return Array.from({ length: 24 }, () => KEY_ALPHABET[randomInt(KEY_ALPHABET.length)]).join("");
 }
 
 function publicKeyView(key: Awaited<ReturnType<typeof getLicenseKeyById>> | undefined) {

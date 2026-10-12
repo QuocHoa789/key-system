@@ -4,7 +4,7 @@ KeyForge là hệ thống quản lý license key trên React/Express/tRPC với 
 
 ## Tính năng
 
-- Tạo key duy nhất với nhãn, giới hạn lượt dùng và thời hạn.
+- Tạo key duy nhất gồm 24 ký tự chữ in hoa và số (`A-Z`, `0-9`), kèm nhãn, giới hạn lượt dùng và thời hạn.
 - Kích hoạt công khai theo fingerprint thiết bị, có audit activation.
 - Dashboard admin với thống kê, tìm kiếm, lọc trạng thái, chỉnh sửa, revoke và xóa key.
 - Đăng nhập admin bằng `ADMIN_PASSWORD` runtime secret; session được ký bằng `MANUS_JWT_SECRET`.
