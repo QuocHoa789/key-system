@@ -25,7 +25,8 @@ function generateKey() {
   return `KF-${part()}-${part()}-${part()}`;
 }
 
-function publicKeyView(key: NonNullable<Awaited<ReturnType<typeof getLicenseKeyById>>>) {
+function publicKeyView(key: Awaited<ReturnType<typeof getLicenseKeyById>> | undefined) {
+  if (!key) throw new TRPCError({ code: "NOT_FOUND", message: "Không tìm thấy key." });
   return { ...key, status: getKeyStatus(key) };
 }
 

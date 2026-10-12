@@ -1,67 +1,106 @@
-import { and, desc, eq, lt, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import {
+import { MongoClient, type Collection, type Db } from "mongodb";
+import type {
   InsertUser,
-  keyActivations,
-  licenseKeys,
+  KeyActivation,
   KeyStatus,
-  users,
+  LicenseKey,
+  User,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
-let _db: ReturnType<typeof drizzle> | null = null;
+type Counter = { _id: string; value: number };
 
-export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
+let client: MongoClient | null = null;
+let databasePromise: Promise<Db> | null = null;
+let indexesReady: Promise<void> | null = null;
+
+async function ensureIndexes(db: Db) {
+  await Promise.all([
+    db.collection<User>("users").createIndex({ openId: 1 }, { unique: true }),
+    db.collection<LicenseKey>("licenseKeys").createIndex({ key: 1 }, { unique: true }),
+    db.collection<LicenseKey>("licenseKeys").createIndex({ status: 1, createdAt: -1 }),
+    db.collection<KeyActivation>("keyActivations").createIndex({ keyId: 1, createdAt: -1 }),
+    db.collection<KeyActivation>("keyActivations").createIndex({ fingerprint: 1 }),
+    db.collection<KeyActivation>("keyActivations").createIndex({ keyId: 1, fingerprint: 1 }, { unique: true }),
+  ]);
+}
+
+export async function getDb(): Promise<Db | null> {
+  if (!ENV.mongodbUri) return null;
+  if (!databasePromise) {
+    client = new MongoClient(ENV.mongodbUri, {
+      appName: "keyforge",
+      maxPoolSize: 20,
+      serverSelectionTimeoutMS: 8_000,
+      connectTimeoutMS: 8_000,
+    });
+    databasePromise = client.connect().then(async connected => {
+      const db = connected.db(ENV.mongodbDbName || undefined);
+      indexesReady = ensureIndexes(db);
+      await indexesReady;
+      return db;
+    }).catch(error => {
+      databasePromise = null;
+      client = null;
+      console.error("[Database] MongoDB connection failed:", error instanceof Error ? error.message : error);
+      throw error;
+    });
   }
-  return _db;
+  return databasePromise;
+}
+
+export async function closeDb() {
+  await client?.close();
+  client = null;
+  databasePromise = null;
+  indexesReady = null;
+}
+
+async function requireDb() {
+  const db = await getDb();
+  if (!db) throw new Error("MongoDB is not configured. Set MONGODB_URI.");
+  if (indexesReady) await indexesReady;
+  return db;
+}
+
+async function nextId(db: Db, sequence: string) {
+  const result = await db.collection<Counter>("counters").findOneAndUpdate(
+    { _id: sequence },
+    { $inc: { value: 1 } },
+    { upsert: true, returnDocument: "after" },
+  );
+  if (!result) throw new Error(`Could not allocate id for ${sequence}`);
+  return result.value;
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("User openId is required for upsert");
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-
-  const values: InsertUser = { openId: user.openId };
-  const updateSet: Record<string, unknown> = {};
-  const textFields = ["name", "email", "loginMethod"] as const;
-  for (const field of textFields) {
-    if (user[field] !== undefined) {
-      const value = user[field] ?? null;
-      values[field] = value;
-      updateSet[field] = value;
-    }
-  }
-  if (user.lastSignedIn !== undefined) {
-    values.lastSignedIn = user.lastSignedIn;
-    updateSet.lastSignedIn = user.lastSignedIn;
-  }
-  if (user.role !== undefined) {
-    values.role = user.role;
-    updateSet.role = user.role;
-  } else if (user.openId === ENV.ownerOpenId) {
-    values.role = "admin";
-    updateSet.role = "admin";
-  }
-  if (!values.lastSignedIn) values.lastSignedIn = new Date();
-  if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
-  await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
+  const db = await requireDb();
+  const now = new Date();
+  const values: User = {
+    id: user.id ?? await nextId(db, "users"),
+    openId: user.openId,
+    name: user.name ?? null,
+    email: user.email ?? null,
+    loginMethod: user.loginMethod ?? null,
+    role: user.role ?? (user.openId === ENV.ownerOpenId ? "admin" : "user"),
+    createdAt: user.createdAt ?? now,
+    updatedAt: now,
+    lastSignedIn: user.lastSignedIn ?? now,
+  };
+  await db.collection<User>("users").updateOne(
+    { openId: user.openId },
+    { $set: { ...values, updatedAt: now }, $setOnInsert: { createdAt: values.createdAt } },
+    { upsert: true },
+  );
 }
 
 export async function getUserByOpenId(openId: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-  return result[0];
+  const db = await requireDb();
+  return db.collection<User>("users").findOne({ openId });
 }
 
-export function getKeyStatus(key: { status: KeyStatus; usedCount: number; maxUses: number; expiresAt: Date | null }, now = new Date()): KeyStatus {
+export function getKeyStatus(key: Pick<LicenseKey, "status" | "usedCount" | "maxUses" | "expiresAt">, now = new Date()): KeyStatus {
   if (key.status === "revoked") return "revoked";
   if (key.expiresAt && key.expiresAt.getTime() <= now.getTime()) return "expired";
   if (key.usedCount >= key.maxUses) return "exhausted";
@@ -70,121 +109,100 @@ export function getKeyStatus(key: { status: KeyStatus; usedCount: number; maxUse
 }
 
 export async function listLicenseKeys() {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-  return db.select().from(licenseKeys).orderBy(desc(licenseKeys.createdAt));
+  const db = await requireDb();
+  return db.collection<LicenseKey>("licenseKeys").find({}).sort({ createdAt: -1 }).toArray();
 }
 
-export async function getLicenseKeyById(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-  const result = await db.select().from(licenseKeys).where(eq(licenseKeys.id, id)).limit(1);
-  return result[0];
+export async function getLicenseKeyById(id: number): Promise<LicenseKey | null> {
+  const db = await requireDb();
+  return db.collection<LicenseKey>("licenseKeys").findOne({ id });
 }
 
-export async function getLicenseKeyByCode(keyCode: string) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-  const result = await db.select().from(licenseKeys).where(eq(licenseKeys.key, keyCode)).limit(1);
-  return result[0];
+export async function getLicenseKeyByCode(keyCode: string): Promise<LicenseKey | null> {
+  const db = await requireDb();
+  return db.collection<LicenseKey>("licenseKeys").findOne({ key: keyCode });
 }
 
-export async function createLicenseKey(input: {
-  key: string;
-  label?: string | null;
-  maxUses: number;
-  expiresAt?: Date | null;
-}) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-  await db.insert(licenseKeys).values({
+export async function createLicenseKey(input: { key: string; label?: string | null; maxUses: number; expiresAt?: Date | null }): Promise<LicenseKey> {
+  const db = await requireDb();
+  const now = new Date();
+  const key: LicenseKey = {
+    id: await nextId(db, "licenseKeys"),
     key: input.key,
     label: input.label ?? null,
     maxUses: input.maxUses,
     usedCount: 0,
     status: "unactivated",
     expiresAt: input.expiresAt ?? null,
-  });
-  return getLicenseKeyByCode(input.key);
+    activatedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.collection<LicenseKey>("licenseKeys").insertOne(key);
+  return key;
 }
 
-export async function updateLicenseKey(
-  id: number,
-  input: { label?: string | null; maxUses?: number; expiresAt?: Date | null; status?: KeyStatus },
-) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-  await db.update(licenseKeys).set({ ...input, updatedAt: new Date() }).where(eq(licenseKeys.id, id));
+export async function updateLicenseKey(id: number, input: { label?: string | null; maxUses?: number; expiresAt?: Date | null; status?: KeyStatus }): Promise<LicenseKey | null> {
+  const db = await requireDb();
+  await db.collection<LicenseKey>("licenseKeys").updateOne({ id }, { $set: { ...input, updatedAt: new Date() } });
   return getLicenseKeyById(id);
 }
 
 export async function deleteLicenseKey(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-  await db.delete(keyActivations).where(eq(keyActivations.keyId, id));
-  await db.delete(licenseKeys).where(eq(licenseKeys.id, id));
+  const db = await requireDb();
+  await db.collection<KeyActivation>("keyActivations").deleteMany({ keyId: id });
+  await db.collection<LicenseKey>("licenseKeys").deleteOne({ id });
 }
 
 export async function listKeyActivations(keyId?: number, limit = 100) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-  const query = db.select().from(keyActivations).orderBy(desc(keyActivations.createdAt)).limit(limit);
-  if (keyId) return query.where(eq(keyActivations.keyId, keyId));
-  return query;
+  const db = await requireDb();
+  const filter = keyId ? { keyId } : {};
+  return db.collection<KeyActivation>("keyActivations").find(filter).sort({ createdAt: -1 }).limit(limit).toArray();
 }
 
-export async function activateLicenseKey(input: {
-  key: string;
-  fingerprint: string;
-  ipAddress?: string | null;
-  userAgent?: string | null;
-}) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-  return db.transaction(async tx => {
-    const found = await tx.select().from(licenseKeys).where(eq(licenseKeys.key, input.key)).limit(1);
-    const key = found[0];
-    if (!key) return { ok: false as const, reason: "invalid" as const };
+export async function activateLicenseKey(input: { key: string; fingerprint: string; ipAddress?: string | null; userAgent?: string | null }) {
+  const db = await requireDb();
+  const keys = db.collection<LicenseKey>("licenseKeys");
+  const activations = db.collection<KeyActivation>("keyActivations");
+  const key = await keys.findOne({ key: input.key });
+  if (!key) return { ok: false as const, reason: "invalid" as const };
 
-    const currentStatus = getKeyStatus(key);
-    if (currentStatus === "revoked") return { ok: false as const, reason: "revoked" as const };
-    if (currentStatus === "expired") return { ok: false as const, reason: "expired" as const };
-    if (currentStatus === "exhausted") return { ok: false as const, reason: "exhausted" as const };
+  const currentStatus = getKeyStatus(key);
+  if (currentStatus === "revoked") return { ok: false as const, reason: "revoked" as const };
+  if (currentStatus === "expired") return { ok: false as const, reason: "expired" as const };
+  if (currentStatus === "exhausted") return { ok: false as const, reason: "exhausted" as const };
 
-    const existing = await tx
-      .select()
-      .from(keyActivations)
-      .where(and(eq(keyActivations.keyId, key.id), eq(keyActivations.fingerprint, input.fingerprint)))
-      .limit(1);
-    if (existing[0]) {
-      return { ok: true as const, reason: "already_active" as const, key, activation: existing[0] };
+  const existing = await activations.findOne({ keyId: key.id, fingerprint: input.fingerprint });
+  if (existing) return { ok: true as const, reason: "already_active" as const, key, activation: existing };
+
+  const nextCount = key.usedCount + 1;
+  const nextStatus: KeyStatus = nextCount >= key.maxUses ? "exhausted" : "active";
+  const updated = await keys.findOneAndUpdate(
+    { id: key.id, usedCount: { $lt: key.maxUses }, status: { $ne: "revoked" } },
+    { $inc: { usedCount: 1 }, $set: { status: nextStatus, activatedAt: key.activatedAt ?? new Date(), updatedAt: new Date() } },
+    { returnDocument: "after" },
+  );
+  if (!updated) {
+    const latest = await keys.findOne({ id: key.id });
+    return { ok: false as const, reason: getKeyStatus(latest ?? key) === "expired" ? "expired" as const : "exhausted" as const };
+  }
+
+  const activation: KeyActivation = {
+    id: await nextId(db, "keyActivations"),
+    keyId: key.id,
+    fingerprint: input.fingerprint,
+    ipAddress: input.ipAddress ?? null,
+    userAgent: input.userAgent ?? null,
+    createdAt: new Date(),
+  };
+  try {
+    await activations.insertOne(activation);
+  } catch (error: unknown) {
+    if ((error as { code?: number }).code === 11000) {
+      const duplicate = await activations.findOne({ keyId: key.id, fingerprint: input.fingerprint });
+      return { ok: true as const, reason: "already_active" as const, key: updated, activation: duplicate ?? activation };
     }
-
-    const nextCount = key.usedCount + 1;
-    const nextStatus: KeyStatus = nextCount >= key.maxUses ? "exhausted" : "active";
-    await tx
-      .update(licenseKeys)
-      .set({
-        usedCount: sql`${licenseKeys.usedCount} + 1`,
-        status: nextStatus,
-        activatedAt: key.activatedAt ?? new Date(),
-        updatedAt: new Date(),
-      })
-      .where(and(eq(licenseKeys.id, key.id), lt(licenseKeys.usedCount, key.maxUses)));
-
-    const inserted = await tx.insert(keyActivations).values({
-      keyId: key.id,
-      fingerprint: input.fingerprint,
-      ipAddress: input.ipAddress ?? null,
-      userAgent: input.userAgent ?? null,
-    });
-    const activationId = Number((inserted as any)?.[0]?.insertId ?? 0);
-    const latest = await tx.select().from(licenseKeys).where(eq(licenseKeys.id, key.id)).limit(1);
-    return {
-      ok: true as const,
-      reason: "activated" as const,
-      key: latest[0] ?? key,
-      activationId,
-    };
-  });
+    throw error;
+  }
+  return { ok: true as const, reason: "activated" as const, key: updated, activationId: activation.id };
 }

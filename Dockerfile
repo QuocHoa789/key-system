@@ -7,6 +7,5 @@ RUN CI=1 pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 ENV NODE_ENV=production
-ENV PORT=3000
-EXPOSE 3000
+EXPOSE 10000
 CMD ["node", "dist/index.js"]

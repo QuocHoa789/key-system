@@ -1,20 +1,21 @@
 # KeyForge — Secure License Infrastructure
 
-KeyForge là hệ thống quản lý license key hoạt động trên React/Express/tRPC/Drizzle, có database MySQL managed, public activation gate và dashboard admin dark premium.
+KeyForge là hệ thống quản lý license key trên React/Express/tRPC với MongoDB Atlas, public activation gate và dashboard admin dark premium.
 
 ## Tính năng
 
 - Tạo key duy nhất với nhãn, giới hạn lượt dùng và thời hạn.
-- Kích hoạt công khai theo fingerprint thiết bị, trả kết quả rõ ràng cho key không hợp lệ, hết hạn, hết lượt hoặc bị thu hồi.
-- Dashboard admin với thống kê, tìm kiếm, lọc trạng thái, chỉnh sửa, revoke, xóa key và audit activation.
-- Đăng nhập admin bằng **ADMIN_PASSWORD runtime secret**; mật khẩu không nằm trong source code, `.env`, commit hoặc lịch sử Git.
-- Manus OAuth vẫn được hỗ trợ cho tài khoản admin đã được provision qua role trong database.
+- Kích hoạt công khai theo fingerprint thiết bị, có audit activation.
+- Dashboard admin với thống kê, tìm kiếm, lọc trạng thái, chỉnh sửa, revoke và xóa key.
+- Đăng nhập admin bằng `ADMIN_PASSWORD` runtime secret; session được ký bằng `MANUS_JWT_SECRET`.
+- MongoDB indexes tự tạo khi app khởi động hoặc chạy `pnpm db:setup`.
+- Security headers bằng Helmet, CSP/HSTS ở production, CORS allowlist, request ID, body-size limits và rate limiting cho API/login/activation.
 
 ## Chạy local
 
 ```bash
 pnpm install
-pnpm db:migrate
+pnpm db:setup
 pnpm dev
 ```
 
@@ -22,13 +23,32 @@ pnpm dev
 
 ## Environment
 
-Copy `.env.example` thành `.env` trong môi trường local và điền các giá trị secret. Không commit `.env` hoặc secret thật.
+Copy `.env.example` thành `.env` trong môi trường local. Không commit `.env` hoặc secret thật.
 
-- `DATABASE_URL`: MySQL connection string.
-- `MANUS_PROJECT_ID`, `MANUS_JWT_SECRET`, `MANUS_OAUTH_API_URL`: giá trị do Manus runtime cung cấp.
-- `ADMIN_PASSWORD`: mật khẩu đăng nhập khu vực admin, chỉ cấu hình qua secret manager hoặc environment runtime.
+- `MONGODB_URI`: MongoDB Atlas connection string.
+- `MONGODB_DB_NAME`: tên database, khuyến nghị `keyforge`.
+- `ADMIN_PASSWORD`: mật khẩu dashboard admin.
+- `MANUS_JWT_SECRET`: secret random dùng để ký session cookie.
+- `CORS_ORIGINS`: danh sách origin cách nhau bằng dấu phẩy; chỉ thêm domain tin cậy.
+- `MANUS_PROJECT_ID`, `MANUS_OAUTH_API_URL`, `OWNER_OPEN_ID`: chỉ cần khi dùng Manus OAuth.
 
-Trong môi trường WebDev managed, `ADMIN_PASSWORD` đã được khai báo dưới dạng protected secret. Session admin dùng cookie `HttpOnly`, `Secure`, `SameSite=None`, tự hết hạn sau 8 giờ và được ký bằng `MANUS_JWT_SECRET`.
+Ví dụ MongoDB URI:
+
+```text
+mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/keyforge?retryWrites=true&w=majority
+```
+
+Password có ký tự đặc biệt phải URL-encode. Database user nên chỉ có quyền `readWrite` trên database `keyforge`.
+
+## Render Docker deployment
+
+- Language: `Docker`
+- Dockerfile Path: `Dockerfile`
+- Health Check Path: `/api/health`
+- Pre-Deploy Command: `pnpm db:setup`
+- Environment: `NODE_ENV=production`, `MONGODB_URI`, `MONGODB_DB_NAME`, `ADMIN_PASSWORD`, `MANUS_JWT_SECRET`, và `CORS_ORIGINS` nếu cần.
+
+Render tự cấp `PORT`; server bind trên `0.0.0.0` và không hard-code port production.
 
 ## Kiểm tra
 
@@ -37,7 +57,3 @@ pnpm check
 pnpm test
 pnpm build
 ```
-
-## GitHub
-
-Repository này giữ lại một số file legacy từ các phiên bản key-system trước để bảo toàn lịch sử. Runtime hiện tại dùng entrypoint trong `server/_core/index.ts`, frontend trong `client/` và schema/migration trong `drizzle/`.
