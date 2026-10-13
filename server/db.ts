@@ -201,10 +201,11 @@ export async function activateLicenseKey(input: { key: string; fingerprint: stri
   const currentStatus = getKeyStatus(key);
   if (currentStatus === "revoked") return { ok: false as const, reason: "revoked" as const };
   if (currentStatus === "expired") return { ok: false as const, reason: "expired" as const };
-  if (currentStatus === "exhausted") return { ok: false as const, reason: "exhausted" as const };
 
   const existing = await activations.findOne({ keyId: key.id, fingerprint: input.fingerprint });
   if (existing) return { ok: true as const, reason: "already_active" as const, key, activation: existing };
+
+  if (currentStatus === "exhausted") return { ok: false as const, reason: "exhausted" as const };
 
   const nextCount = key.usedCount + 1;
   const nextStatus: KeyStatus = nextCount >= key.maxUses ? "exhausted" : "active";

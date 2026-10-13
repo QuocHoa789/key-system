@@ -60,7 +60,7 @@ POST /api/v1/license/activate
 POST /api/v1/license/heartbeat
 ```
 
-Request verify/activate dùng `{ "key": "...", "deviceId": "..." }`. `verify` chỉ cho phép key đã redeem trên đúng device và không trừ lượt; key `unactivated` trả `not_redeemed`. `activate` là bước redeem, bind key với device, ghi audit và trả `licenseToken` signed có thời hạn 30 phút. Heartbeat dùng `{ "licenseToken": "...", "deviceId": "..." }` để kiểm tra token, trạng thái blacklist/expiry và device binding. Các endpoint có rate limit riêng.
+Request verify/activate dùng `{ "key": "...", "deviceId": "..." }`. `verify` chỉ cho phép key đã redeem trên đúng device và không trừ lượt; key `unactivated` trả `not_redeemed`. `activate` là bước redeem, bind key với device, ghi audit và trả `licenseToken` signed có thời hạn 30 phút. Nếu cùng key và cùng device gọi lại, server cấp token mới nhưng không tăng `usedCount`; device khác vẫn bị chặn. Heartbeat dùng `{ "licenseToken": "...", "deviceId": "..." }` để kiểm tra token, trạng thái blacklist/expiry và device binding. Các endpoint có rate limit riêng.
 
 ## Kiểm tra
 

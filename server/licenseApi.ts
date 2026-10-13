@@ -29,7 +29,7 @@ const verifyLimiter = rateLimit({
 });
 const activateLimiter = rateLimit({
   windowMs: 15 * 60_000,
-  limit: 10,
+  limit: 20,
   standardHeaders: "draft-8",
   legacyHeaders: false,
   message: { success: false, reason: "rate_limited" },
