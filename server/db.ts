@@ -120,7 +120,7 @@ export async function getLicenseKeyById(id: number): Promise<LicenseKey | null> 
 
 export async function getLicenseKeyByCode(keyCode: string): Promise<LicenseKey | null> {
   const db = await requireDb();
-  return db.collection<LicenseKey>("licenseKeys").findOne({ key: keyCode });
+  return db.collection<LicenseKey>("licenseKeys").findOne({ key: { $in: [keyCode, keyCode.toLowerCase(), keyCode.toUpperCase()] } });
 }
 
 export async function createLicenseKey(input: { key: string; label?: string | null; maxUses: number; expiresAt?: Date | null }): Promise<LicenseKey> {
@@ -145,6 +145,27 @@ export async function createLicenseKey(input: { key: string; label?: string | nu
 export async function updateLicenseKey(id: number, input: { label?: string | null; maxUses?: number; expiresAt?: Date | null; status?: KeyStatus }): Promise<LicenseKey | null> {
   const db = await requireDb();
   await db.collection<LicenseKey>("licenseKeys").updateOne({ id }, { $set: { ...input, updatedAt: new Date() } });
+  return getLicenseKeyById(id);
+}
+
+export async function unblacklistLicenseKey(id: number): Promise<LicenseKey | null> {
+  const db = await requireDb();
+  const current = await getLicenseKeyById(id);
+  if (!current) return null;
+  const status = getKeyStatus({ ...current, status: "unactivated" });
+  await db.collection<LicenseKey>("licenseKeys").updateOne({ id }, { $set: { status, updatedAt: new Date() } });
+  return getLicenseKeyById(id);
+}
+
+export async function resetKeyHwids(id: number): Promise<LicenseKey | null> {
+  const db = await requireDb();
+  const current = await getLicenseKeyById(id);
+  if (!current) return null;
+  await db.collection<KeyActivation>("keyActivations").deleteMany({ keyId: id });
+  await db.collection<LicenseKey>("licenseKeys").updateOne(
+    { id },
+    { $set: { usedCount: 0, status: "unactivated", activatedAt: null, updatedAt: new Date() } },
+  );
   return getLicenseKeyById(id);
 }
 

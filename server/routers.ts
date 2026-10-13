@@ -9,7 +9,9 @@ import {
   getLicenseKeyById,
   listKeyActivations,
   listLicenseKeys,
+  resetKeyHwids,
   updateLicenseKey,
+  unblacklistLicenseKey,
 } from "./db";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc";
@@ -20,7 +22,7 @@ import { COOKIE_NAME } from "@shared/const";
 const statusSchema = z.enum(["unactivated", "active", "exhausted", "expired", "revoked"]);
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
-const KEY_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const KEY_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 
 function generateKey() {
   return Array.from({ length: 24 }, () => KEY_ALPHABET[randomInt(KEY_ALPHABET.length)]).join("");
@@ -78,7 +80,7 @@ export const appRouter = router({
       .input(z.object({ key: z.string().trim().min(3).max(128), fingerprint: z.string().trim().min(8).max(160) }))
       .mutation(async ({ ctx, input }) => {
         const result = await activateLicenseKey({
-          key: input.key.toUpperCase(),
+          key: input.key.toLowerCase(),
           fingerprint: input.fingerprint,
           ipAddress: ctx.req.ip ?? ctx.req.headers["x-forwarded-for"]?.toString().split(",")[0] ?? null,
           userAgent: ctx.req.headers["user-agent"] ?? null,
@@ -154,6 +156,20 @@ export const appRouter = router({
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(async ({ input }) => {
         const updated = await updateLicenseKey(input.id, { status: "revoked" });
+        if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Không tìm thấy key." });
+        return publicKeyView(updated);
+      }),
+    unblacklist: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const updated = await unblacklistLicenseKey(input.id);
+        if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Không tìm thấy key." });
+        return publicKeyView(updated);
+      }),
+    resetHwid: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const updated = await resetKeyHwids(input.id);
         if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Không tìm thấy key." });
         return publicKeyView(updated);
       }),

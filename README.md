@@ -4,9 +4,9 @@ KeyForge là hệ thống quản lý license key trên React/Express/tRPC với 
 
 ## Tính năng
 
-- Tạo key duy nhất gồm 24 ký tự chữ in hoa và số (`A-Z`, `0-9`), kèm nhãn, giới hạn lượt dùng và thời hạn.
+- Tạo key duy nhất gồm 24 ký tự chữ thường và số (`a-z`, `0-9`), kèm nhãn, giới hạn lượt dùng và thời hạn.
 - Kích hoạt công khai theo fingerprint thiết bị, có audit activation.
-- Dashboard admin với thống kê, tìm kiếm, lọc trạng thái, chỉnh sửa, revoke và xóa key.
+- Dashboard admin với thống kê, tìm kiếm, lọc trạng thái, blacklist/unblacklist, reset HWID, chỉnh sửa và xóa key.
 - Đăng nhập admin bằng `ADMIN_PASSWORD` runtime secret; session được ký bằng `MANUS_JWT_SECRET`.
 - MongoDB indexes tự tạo khi app khởi động hoặc chạy `pnpm db:setup`.
 - Security headers bằng Helmet, CSP/HSTS ở production, CORS allowlist, request ID, body-size limits và rate limiting cho API/login/activation.
@@ -60,7 +60,7 @@ POST /api/v1/license/activate
 POST /api/v1/license/heartbeat
 ```
 
-Request verify/activate dùng `{ "key": "...", "deviceId": "..." }`. `verify` chỉ kiểm tra và không trừ lượt; `activate` bind key với device, ghi audit và trả `licenseToken` signed có thời hạn 30 phút. Heartbeat dùng `{ "licenseToken": "...", "deviceId": "..." }` để kiểm tra token, trạng thái revoke/expiry và device binding. Các endpoint có rate limit riêng.
+Request verify/activate dùng `{ "key": "...", "deviceId": "..." }`. `verify` chỉ cho phép key đã redeem trên đúng device và không trừ lượt; key `unactivated` trả `not_redeemed`. `activate` là bước redeem, bind key với device, ghi audit và trả `licenseToken` signed có thời hạn 30 phút. Heartbeat dùng `{ "licenseToken": "...", "deviceId": "..." }` để kiểm tra token, trạng thái blacklist/expiry và device binding. Các endpoint có rate limit riêng.
 
 ## Kiểm tra
 

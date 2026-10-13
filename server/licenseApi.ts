@@ -65,7 +65,7 @@ async function readLicenseToken(token: string) {
 }
 
 function normalizedKey(value: string) {
-  return value.toUpperCase();
+  return value.toLowerCase();
 }
 
 function publicStatus(key: Awaited<ReturnType<typeof getLicenseKeyByCode>>) {
@@ -95,7 +95,11 @@ export function registerLicenseApi(app: Express) {
       if (status === "revoked") return res.status(403).json({ valid: false, reason: "revoked" });
       if (status === "expired") return res.status(403).json({ valid: false, reason: "expired" });
       const activation = await getActivationByDevice(key.id, parsed.data.deviceId);
-      if (status === "exhausted" && !activation) return res.status(403).json({ valid: false, reason: "exhausted" });
+      if (!activation) {
+        if (status === "unactivated") return res.status(403).json({ valid: false, reason: "not_redeemed" });
+        if (status === "exhausted") return res.status(403).json({ valid: false, reason: "exhausted" });
+        return res.status(403).json({ valid: false, reason: "device_mismatch" });
+      }
       return res.json({ valid: true, deviceBound: Boolean(activation), ...publicStatus(key) });
     } catch (error) {
       console.error("[License] verify failed", error instanceof Error ? error.message : error);
