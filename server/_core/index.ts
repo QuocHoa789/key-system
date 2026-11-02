@@ -9,6 +9,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { publicPlatformScript } from "./publicConfig";
 import { appRouter } from "../routers";
 import { registerLicenseApi } from "../licenseApi";
+import { fileUploadLimit, registerFileApi } from "../fileApi";
 import { createContext } from "./context";
 import { ENV } from "./env";
 import { serveStatic, setupVite } from "./vite";
@@ -86,6 +87,8 @@ async function startServer() {
     next();
   });
   app.use(applyCors);
+  app.use("/api/files/upload", express.raw({ type: "*/*", limit: fileUploadLimit }));
+  registerFileApi(app);
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ limit: "64kb", extended: true }));
   app.use("/api", (_req, res, next) => {

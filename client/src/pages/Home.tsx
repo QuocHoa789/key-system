@@ -14,6 +14,7 @@ import {
   Crown,
   Database,
   ExternalLink,
+  FileUp,
   Fingerprint,
   KeyRound,
   LayoutDashboard,
@@ -36,7 +37,7 @@ import {
 import { toast } from "sonner";
 
 type StatusFilter = "all" | "unactivated" | "active" | "exhausted" | "expired" | "revoked";
-type DashboardTab = "overview" | "keys" | "activity";
+type DashboardTab = "overview" | "keys" | "activity" | "files";
 
 const statusMeta: Record<Exclude<StatusFilter, "all">, { label: string; tone: string; dot: string }> = {
   unactivated: { label: "Chưa kích hoạt", tone: "status-neutral", dot: "dot-neutral" },
@@ -256,14 +257,15 @@ function DashboardShell({ user }: { user: any }) {
     return <div className="public-page"><header className="public-nav shell-width"><Logo /><div className="nav-status"><span className="status-dot dot-active" /> SIGNED IN</div><button className="login-link" onClick={handleLogout}><LogOut size={15} /> Log out</button></header><main className="public-main shell-width"><div className="access-denied"><div className="access-denied-icon"><Users size={25} /></div><div><div className="eyebrow">ADMIN ACCESS REQUIRED</div><h1>Workspace not provisioned.</h1><p>Tài khoản <strong>{user?.email || user?.name || "này"}</strong> đã đăng nhập nhưng chưa có quyền admin trong KeyForge.</p></div></div><PublicActivation /></main></div>;
   }
 
-  const navItems: { id: DashboardTab; label: string; icon: typeof LayoutDashboard }[] = [{ id: "overview", label: "Overview", icon: LayoutDashboard }, { id: "keys", label: "License keys", icon: KeyRound }, { id: "activity", label: "Activity log", icon: Activity }];
+  const navItems: { id: DashboardTab; label: string; icon: typeof LayoutDashboard }[] = [{ id: "overview", label: "Overview", icon: LayoutDashboard }, { id: "keys", label: "License keys", icon: KeyRound }, { id: "activity", label: "Activity log", icon: Activity }, { id: "files", label: "Raw files", icon: FileUp }];
   return <div className="app-shell">
     <aside className={`sidebar ${mobileNav ? "sidebar-open" : ""}`}><div className="sidebar-top"><Logo /><button className="mobile-close icon-button" onClick={() => setMobileNav(false)}><X size={17} /></button></div><div className="workspace-switch"><span className="workspace-avatar">K</span><div><strong>KeyForge Core</strong><span>Production workspace</span></div><ChevronDown size={15} /></div><nav className="side-nav"><span className="nav-section-label">WORKSPACE</span>{navItems.map(item => <button key={item.id} className={`side-nav-item ${tab === item.id ? "active" : ""}`} onClick={() => { setTab(item.id); setMobileNav(false); }}><item.icon size={17} /><span>{item.label}</span>{item.id === "activity" && <span className="nav-count">{activations.data?.length ?? 0}</span>}</button>)}</nav><div className="sidebar-bottom"><div className="security-mini"><ShieldCheck size={16} /><div><strong>Protected</strong><span>Role-based access</span></div></div><button className="account-row" onClick={handleLogout}><span className="user-avatar">{(user.name || user.email || "A").slice(0, 1).toUpperCase()}</span><span className="account-copy"><strong>{user.name || "Admin"}</strong><span>Administrator</span></span><LogOut size={15} /></button></div></aside>
     {mobileNav && <div className="mobile-nav-overlay" onClick={() => setMobileNav(false)} />}
-    <main className="dashboard-main"><header className="dashboard-header"><div className="header-left"><button className="mobile-menu icon-button" onClick={() => setMobileNav(true)}><Menu size={19} /></button><div><div className="breadcrumb"><span>KeyForge</span><span>/</span><strong>{navItems.find(item => item.id === tab)?.label}</strong></div><h1>{tab === "overview" ? "Good evening, admin." : tab === "keys" ? "License keys" : "Activity log"}</h1></div></div><div className="header-actions"><div className="header-live"><span className="status-dot dot-active" /> API ONLINE</div><Button onClick={() => setShowCreate(true)}><Plus size={16} /> New key</Button></div></header>
+    <main className="dashboard-main"><header className="dashboard-header"><div className="header-left"><button className="mobile-menu icon-button" onClick={() => setMobileNav(true)}><Menu size={19} /></button><div><div className="breadcrumb"><span>KeyForge</span><span>/</span><strong>{navItems.find(item => item.id === tab)?.label}</strong></div><h1>{tab === "overview" ? "Good evening, admin." : tab === "keys" ? "License keys" : tab === "activity" ? "Activity log" : "Raw files"}</h1></div></div><div className="header-actions"><div className="header-live"><span className="status-dot dot-active" /> API ONLINE</div>{tab !== "files" && <Button onClick={() => setShowCreate(true)}><Plus size={16} /> New key</Button>}</div></header>
       {tab === "overview" && <Overview summary={summary.data} activations={activations.data ?? []} onViewKeys={() => setTab("keys")} />}
       {tab === "keys" && <KeysView keys={keyList.data ?? []} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} onCopy={copyKey} onEdit={setEditKey} onRevoke={confirmRevoke} onUnblacklist={confirmUnblacklist} onResetHwid={confirmResetHwid} onRemove={confirmRemove} isLoading={keyList.isLoading} />}
       {tab === "activity" && <ActivityView activations={activations.data ?? []} keys={keyList.data ?? []} />}
+      {tab === "files" && <FilesView />}
     </main>
     {showCreate && <CreateKeyPanel onClose={() => setShowCreate(false)} onCreated={refresh} />}
     {editKey && <EditKeyPanel keyData={editKey} onClose={() => setEditKey(null)} onSaved={refresh} />}
@@ -285,6 +287,26 @@ function ActivityView({ activations }: { activations: any[]; keys: any[] }) {
 
 function EmptyState({ icon: Icon, title, copy }: { icon: typeof Activity; title: string; copy: string }) {
   return <div className="empty-state"><span className="empty-icon"><Icon size={20} /></span><strong>{title}</strong><span>{copy}</span></div>;
+}
+
+function FilesView() {
+  const [busy, setBusy] = useState(false);
+  const [uploaded, setUploaded] = useState<{ name: string; rawPath: string; size: number } | null>(null);
+  async function upload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]; event.target.value = "";
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { toast.error("File tối đa 10 MB."); return; }
+    setBusy(true);
+    try {
+      const response = await fetch("/api/files/upload", { method: "POST", credentials: "include", headers: { "Content-Type": file.type || "text/plain", "X-File-Name": file.name }, body: file });
+      const data = await response.json() as { name?: string; rawPath?: string; size?: number; error?: string };
+      if (!response.ok || !data.rawPath || !data.name || typeof data.size !== "number") throw new Error(data.error || "Upload thất bại.");
+      setUploaded({ name: data.name, rawPath: data.rawPath, size: data.size }); toast.success("Upload thành công.");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Upload thất bại."); }
+    finally { setBusy(false); }
+  }
+  function copyRaw() { if (!uploaded) return; navigator.clipboard?.writeText(new URL(uploaded.rawPath, window.location.origin).toString()); toast.success("Đã copy raw link."); }
+  return <div className="content-wrap"><div className="page-toolbar"><div><div className="eyebrow">RAW FILE HOSTING</div><p>Upload file text/code và nhận link public để dùng như GitHub Raw.</p></div></div><div className="panel" style={{ padding: "28px" }}><label className="field-label" htmlFor="raw-upload">UPLOAD FILE <span>MAX 10 MB</span></label><input id="raw-upload" type="file" accept=".txt,.lua,.js,.ts,.json,.css,.html,.md,.xml,.yml,.yaml" onChange={upload} disabled={busy} /><p className="table-muted" style={{ marginTop: "12px" }}>Chỉ nhận file text/code an toàn.</p>{busy && <div className="table-loading"><RefreshCw className="spin" size={17} /> Đang upload...</div>}{uploaded && <div className="activation-result result-success" style={{ marginTop: "20px" }}><CheckCircle2 size={18} /><div><strong>{uploaded.name}</strong><span>{Math.ceil(uploaded.size / 1024)} KB · {new URL(uploaded.rawPath, window.location.origin).toString()}</span></div><button className="text-button" onClick={copyRaw}><Copy size={15} /> Copy raw link</button></div>}</div></div>;
 }
 
 export default function Home() {

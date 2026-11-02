@@ -32,6 +32,18 @@ Copy `.env.example` thành `.env` trong môi trường local. Không commit `.en
 - `CORS_ORIGINS`: danh sách origin cách nhau bằng dấu phẩy; chỉ thêm domain tin cậy.
 - `MANUS_PROJECT_ID`, `MANUS_OAUTH_API_URL`, `OWNER_OPEN_ID`: chỉ cần khi dùng Manus OAuth.
 
+## Raw file hosting
+
+Admin có thể mở tab **Raw files** trong dashboard để upload file text/code (`txt`, `lua`, `js`, `ts`, `json`, `css`, `html`, `md`, `xml`, `yml`, `yaml`) tối đa 10 MB. Route upload yêu cầu session admin và trả về `rawPath` public dạng `/manus-storage/raw/...`; ghép với domain deploy để có raw URL dùng như GitHub Raw.
+
+```http
+POST /api/files/upload
+Content-Type: text/plain
+X-File-Name: loader.lua
+```
+
+Server không nhận file thực thi hoặc phần mở rộng ngoài whitelist.
+
 Ví dụ MongoDB URI:
 
 ```text

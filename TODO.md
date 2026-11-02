@@ -8,3 +8,5 @@
 - Danh sách quản trị hỗ trợ tìm kiếm theo mã/nhãn, lọc theo trạng thái, sao chép key, thu hồi key, chỉnh sửa giới hạn/thời hạn và xóa key cùng lịch sử activation.
 - Lưu lịch sử activation gồm key, fingerprint, địa chỉ IP, user-agent và thời điểm để quản trị viên tra cứu.
 - Giao diện responsive dark premium với sidebar, thẻ số liệu, bảng key, form activation công khai và phản hồi trạng thái dễ hiểu.
+- Admin có thể upload file text/code tối đa 10 MB từ dashboard Files; server yêu cầu session admin, chỉ nhận phần mở rộng an toàn, lưu file qua storage bền vững và trả `rawPath` public.
+- Admin có thể copy raw URL sau khi upload; key system, activation và các API hiện có tiếp tục hoạt động không thay đổi.
