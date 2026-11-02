@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import {
@@ -291,7 +291,17 @@ function EmptyState({ icon: Icon, title, copy }: { icon: typeof Activity; title:
 
 function FilesView() {
   const [busy, setBusy] = useState(false);
-  const [uploaded, setUploaded] = useState<{ name: string; rawPath: string; size: number } | null>(null);
+  const [files, setFiles] = useState<Array<{ id: string; name: string; rawPath: string; size: number; enabled: boolean }>>([]);
+  const [loading, setLoading] = useState(true);
+  async function loadFiles() {
+    try {
+      const response = await fetch("/api/files/admin/list", { credentials: "include" });
+      if (!response.ok) throw new Error("Không thể tải danh sách file.");
+      setFiles(await response.json());
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Không thể tải danh sách file."); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void loadFiles(); }, []);
   async function upload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]; event.target.value = "";
     if (!file) return;
@@ -301,12 +311,21 @@ function FilesView() {
       const response = await fetch("/api/files/upload", { method: "POST", credentials: "include", headers: { "Content-Type": file.type || "text/plain", "X-File-Name": file.name }, body: file });
       const data = await response.json() as { name?: string; rawPath?: string; size?: number; error?: string };
       if (!response.ok || !data.rawPath || !data.name || typeof data.size !== "number") throw new Error(data.error || "Upload thất bại.");
-      setUploaded({ name: data.name, rawPath: data.rawPath, size: data.size }); toast.success("Upload thành công.");
+      toast.success("Upload thành công."); await loadFiles();
     } catch (error) { toast.error(error instanceof Error ? error.message : "Upload thất bại."); }
     finally { setBusy(false); }
   }
-  function copyRaw() { if (!uploaded) return; navigator.clipboard?.writeText(new URL(uploaded.rawPath, window.location.origin).toString()); toast.success("Đã copy raw link."); }
-  return <div className="content-wrap"><div className="page-toolbar"><div><div className="eyebrow">RAW FILE HOSTING</div><p>Upload file text/code và nhận link public để dùng như GitHub Raw.</p></div></div><div className="panel" style={{ padding: "28px" }}><label className="field-label" htmlFor="raw-upload">UPLOAD FILE <span>MAX 10 MB</span></label><input id="raw-upload" type="file" accept=".txt,.lua,.js,.ts,.json,.css,.html,.md,.xml,.yml,.yaml" onChange={upload} disabled={busy} /><p className="table-muted" style={{ marginTop: "12px" }}>Chỉ nhận file text/code an toàn.</p>{busy && <div className="table-loading"><RefreshCw className="spin" size={17} /> Đang upload...</div>}{uploaded && <div className="activation-result result-success" style={{ marginTop: "20px" }}><CheckCircle2 size={18} /><div><strong>{uploaded.name}</strong><span>{Math.ceil(uploaded.size / 1024)} KB · {new URL(uploaded.rawPath, window.location.origin).toString()}</span></div><button className="text-button" onClick={copyRaw}><Copy size={15} /> Copy raw link</button></div>}</div></div>;
+  async function toggle(file: typeof files[number]) {
+    try {
+      const response = await fetch(`/api/files/admin/${file.id}/toggle`, { method: "POST", credentials: "include" });
+      const data = await response.json() as { enabled?: boolean; error?: string };
+      if (!response.ok || typeof data.enabled !== "boolean") throw new Error(data.error || "Không thể đổi trạng thái file.");
+      setFiles(current => current.map(item => item.id === file.id ? { ...item, enabled: data.enabled! } : item));
+      toast.success(data.enabled ? "Đã bật load file." : "Đã tắt load file.");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Không thể đổi trạng thái file."); }
+  }
+  function copyRaw(rawPath: string) { navigator.clipboard?.writeText(new URL(rawPath, window.location.origin).toString()); toast.success("Đã copy raw link."); }
+  return <div className="content-wrap"><div className="page-toolbar"><div><div className="eyebrow">RAW FILE HOSTING</div><p>Upload file text/code và bật hoặc tắt quyền load từ raw link.</p></div></div><div className="panel" style={{ padding: "28px" }}><label className="field-label" htmlFor="raw-upload">UPLOAD FILE <span>MAX 10 MB</span></label><input id="raw-upload" type="file" accept=".txt,.lua,.js,.ts,.json,.css,.html,.md,.xml,.yml,.yaml" onChange={upload} disabled={busy} /><p className="table-muted" style={{ marginTop: "12px" }}>Tắt file sẽ làm raw link trả 404 và script không thể load nội dung.</p>{busy && <div className="table-loading"><RefreshCw className="spin" size={17} /> Đang upload...</div>}{loading ? <div className="table-loading"><RefreshCw className="spin" size={17} /> Đang tải files...</div> : <div style={{ display: "grid", gap: "12px", marginTop: "20px" }}>{files.length === 0 ? <EmptyState icon={FileUp} title="Chưa có file" copy="Upload file đầu tiên để tạo raw link." /> : files.map(file => <div key={file.id} className="activation-result" style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", opacity: file.enabled ? 1 : 0.58 }}><span className={`status-dot ${file.enabled ? "dot-active" : "dot-danger"}`} /><div style={{ minWidth: 0, flex: "1 1 220px" }}><strong>{file.name}</strong><span style={{ overflowWrap: "anywhere" }}>{Math.ceil(file.size / 1024)} KB · {new URL(file.rawPath, window.location.origin).toString()}</span></div><button className="text-button" onClick={() => copyRaw(file.rawPath)}><Copy size={15} /> Copy raw</button><button className="text-button" onClick={() => void toggle(file)}>{file.enabled ? "Tắt load" : "Bật load"}</button></div>)}</div>}</div></div>;
 }
 
 export default function Home() {

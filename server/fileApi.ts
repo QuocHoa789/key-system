@@ -34,6 +34,46 @@ async function getBucket() {
 }
 
 export function registerFileApi(app: Express) {
+  app.get("/api/files/admin/list", async (req, res) => {
+    if (!(await requireAdmin(req))) return res.status(403).json({ error: "Admin access required" });
+    try {
+      const db = await getDb();
+      if (!db) throw new Error("MongoDB is not configured");
+      const files = await db.collection("files.files").find({}).sort({ uploadDate: -1 }).limit(200).toArray();
+      return res.json(files.map(file => ({
+        id: String(file._id),
+        name: String(file.metadata?.originalName ?? file.filename),
+        size: Number(file.length ?? 0),
+        contentType: String(file.metadata?.contentType ?? "text/plain"),
+        enabled: file.metadata?.enabled !== false,
+        uploadedAt: file.uploadDate,
+        rawPath: `/api/files/raw/${String(file._id)}`,
+      })));
+    } catch (error) {
+      console.error("[Files] list failed", error instanceof Error ? error.message : error);
+      return res.status(503).json({ error: "MongoDB storage unavailable" });
+    }
+  });
+
+  app.post("/api/files/admin/:id/toggle", async (req, res) => {
+    if (!(await requireAdmin(req))) return res.status(403).json({ error: "Admin access required" });
+    const id = String(req.params.id ?? "");
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: "Invalid file id" });
+    try {
+      const db = await getDb();
+      if (!db) throw new Error("MongoDB is not configured");
+      const objectId = new ObjectId(id);
+      const file = await db.collection("files.files").findOne({ _id: objectId });
+      if (!file) return res.status(404).json({ error: "File not found" });
+      const enabled = file.metadata?.enabled === false;
+      await db.collection("files.files").updateOne({ _id: objectId }, { $set: { "metadata.enabled": enabled } });
+      return res.json({ id, enabled });
+    } catch (error) {
+      console.error("[Files] toggle failed", error instanceof Error ? error.message : error);
+      return res.status(503).json({ error: "MongoDB storage unavailable" });
+    }
+  });
+
   app.get("/api/files/raw/:id", async (req, res) => {
     const id = String(req.params.id ?? "");
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: "Invalid file id" });
@@ -43,6 +83,7 @@ export function registerFileApi(app: Express) {
       const objectId = new ObjectId(id);
       const file = await db.collection("files.files").findOne({ _id: objectId });
       if (!file) return res.status(404).json({ error: "File not found" });
+      if (file.metadata?.enabled === false) return res.status(404).json({ error: "File is disabled" });
       const contentType = typeof file.metadata?.contentType === "string" ? file.metadata.contentType : "text/plain";
       res.setHeader("Content-Type", contentType);
       res.setHeader("Content-Disposition", "inline");
@@ -68,7 +109,7 @@ export function registerFileApi(app: Express) {
     try {
       const bucket = await getBucket();
       const id = await new Promise<ObjectId>((resolve, reject) => {
-        const upload = bucket.openUploadStream(fileName, { metadata: { contentType, originalName: fileName } });
+      const upload = bucket.openUploadStream(fileName, { metadata: { contentType, originalName: fileName, enabled: true } });
         upload.once("finish", () => resolve(upload.id as ObjectId));
         upload.once("error", reject);
         upload.end(body);
