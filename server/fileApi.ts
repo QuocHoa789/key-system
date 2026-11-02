@@ -1,6 +1,6 @@
 import type { Express, Request } from "express";
 import path from "node:path";
-import { storagePut } from "./storage";
+import { storageGetSignedUrl, storagePut } from "./storage";
 import { sdk } from "./_core/sdk";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -23,6 +23,19 @@ async function requireAdmin(req: Request) {
 }
 
 export function registerFileApi(app: Express) {
+  app.get("/api/files/raw/*", async (req, res) => {
+    const wildcard = (req.params as unknown as Record<string, string>)["0"];
+    const key = String(wildcard ?? "").replace(/^\/+/, "");
+    if (!key || key.includes("..") || !key.startsWith("raw/")) return res.status(400).json({ error: "Invalid raw path" });
+    try {
+      const signedUrl = await storageGetSignedUrl(key);
+      return res.redirect(307, signedUrl);
+    } catch (error) {
+      console.error("[Files] raw download failed", error instanceof Error ? error.message : error);
+      return res.status(404).json({ error: "File not found" });
+    }
+  });
+
   app.post("/api/files/upload", async (req, res, next) => {
     const admin = await requireAdmin(req);
     if (!admin) return res.status(403).json({ error: "Admin access required" });
@@ -36,7 +49,8 @@ export function registerFileApi(app: Express) {
     if (body.length > MAX_FILE_BYTES) return res.status(413).json({ error: "File exceeds 10 MB limit" });
     try {
       const stored = await storagePut(`raw/${fileName}`, body, contentType || "text/plain");
-      return res.status(201).json({ name: fileName, size: body.length, contentType, rawPath: stored.url, rawUrl: stored.url });
+      const rawPath = `/api/files/raw/${stored.key}`;
+      return res.status(201).json({ name: fileName, size: body.length, contentType, rawPath, rawUrl: rawPath });
     } catch (error) {
       console.error("[Files] upload failed", error instanceof Error ? error.message : error);
       return res.status(503).json({ error: "Storage unavailable" });
