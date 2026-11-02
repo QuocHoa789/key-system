@@ -74,6 +74,20 @@ export function registerFileApi(app: Express) {
     }
   });
 
+  app.delete("/api/files/admin/:id", async (req, res) => {
+    if (!(await requireAdmin(req))) return res.status(403).json({ error: "Admin access required" });
+    const id = String(req.params.id ?? "");
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: "Invalid file id" });
+    try {
+      const bucket = await getBucket();
+      await bucket.delete(new ObjectId(id));
+      return res.json({ success: true, id });
+    } catch (error) {
+      console.error("[Files] delete failed", error instanceof Error ? error.message : error);
+      return res.status(404).json({ error: "File not found" });
+    }
+  });
+
   app.get("/api/files/raw/:id", async (req, res) => {
     const id = String(req.params.id ?? "");
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: "Invalid file id" });
