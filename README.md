@@ -34,7 +34,7 @@ Copy `.env.example` thành `.env` trong môi trường local. Không commit `.en
 
 ## Raw file hosting
 
-Admin có thể mở tab **Raw files** trong dashboard để upload file text/code (`txt`, `lua`, `js`, `ts`, `json`, `css`, `html`, `md`, `xml`, `yml`, `yaml`) tối đa 10 MB. Route upload yêu cầu session admin và trả về `rawPath` public dạng `/api/files/raw/raw/...`; ghép với domain deploy để có raw URL dùng như GitHub Raw. Route raw proxy lấy signed URL từ storage nên hoạt động trên cả Render và WebDev.
+Admin có thể mở tab **Raw files** trong dashboard để upload file text/code (`txt`, `lua`, `js`, `ts`, `json`, `css`, `html`, `md`, `xml`, `yml`, `yaml`) tối đa 10 MB. File được lưu trực tiếp bằng MongoDB GridFS, không cần `MANUS_API_URL` hoặc `MANUS_API_KEY`. Route upload trả về `rawPath` dạng `/api/files/raw/<fileId>` để ghép với domain Render và dùng như GitHub Raw.
 
 ```http
 POST /api/files/upload

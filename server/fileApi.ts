@@ -1,7 +1,8 @@
 import type { Express, Request } from "express";
 import path from "node:path";
+import { ObjectId, GridFSBucket } from "mongodb";
 import { parse as parseCookieHeader } from "cookie";
-import { storageGetSignedUrl, storagePut } from "./storage";
+import { getDb } from "./db";
 import { sdk } from "./_core/sdk";
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "./_core/adminAuth";
 
@@ -26,14 +27,27 @@ async function requireAdmin(req: Request) {
   }
 }
 
+async function getBucket() {
+  const db = await getDb();
+  if (!db) throw new Error("MongoDB is not configured. Set MONGODB_URI.");
+  return new GridFSBucket(db, { bucketName: "files" });
+}
+
 export function registerFileApi(app: Express) {
-  app.get("/api/files/raw/*", async (req, res) => {
-    const wildcard = (req.params as unknown as Record<string, string>)["0"];
-    const key = String(wildcard ?? "").replace(/^\/+/, "");
-    if (!key || key.includes("..") || !key.startsWith("raw/")) return res.status(400).json({ error: "Invalid raw path" });
+  app.get("/api/files/raw/:id", async (req, res) => {
+    const id = String(req.params.id ?? "");
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: "Invalid file id" });
     try {
-      const signedUrl = await storageGetSignedUrl(key);
-      return res.redirect(307, signedUrl);
+      const db = await getDb();
+      if (!db) throw new Error("MongoDB is not configured");
+      const objectId = new ObjectId(id);
+      const file = await db.collection("files.files").findOne({ _id: objectId });
+      if (!file) return res.status(404).json({ error: "File not found" });
+      const contentType = typeof file.metadata?.contentType === "string" ? file.metadata.contentType : "text/plain";
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Content-Disposition", "inline");
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      return (await getBucket()).openDownloadStream(objectId).pipe(res);
     } catch (error) {
       console.error("[Files] raw download failed", error instanceof Error ? error.message : error);
       return res.status(404).json({ error: "File not found" });
@@ -46,18 +60,24 @@ export function registerFileApi(app: Express) {
     next();
   }, async (req, res) => {
     const fileName = safeFileName(req.get("x-file-name") ?? "");
-    const contentType = (req.get("content-type") ?? "text/plain").split(";", 1)[0].trim().toLowerCase();
+    const contentType = (req.get("content-type") ?? "text/plain").split(";", 1)[0].trim().toLowerCase() || "text/plain";
     const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
     if (!fileName) return res.status(400).json({ error: "Unsupported or invalid file name" });
     if (body.length === 0) return res.status(400).json({ error: "File is empty" });
     if (body.length > MAX_FILE_BYTES) return res.status(413).json({ error: "File exceeds 10 MB limit" });
     try {
-      const stored = await storagePut(`raw/${fileName}`, body, contentType || "text/plain");
-      const rawPath = `/api/files/raw/${stored.key}`;
+      const bucket = await getBucket();
+      const id = await new Promise<ObjectId>((resolve, reject) => {
+        const upload = bucket.openUploadStream(fileName, { metadata: { contentType, originalName: fileName } });
+        upload.once("finish", () => resolve(upload.id as ObjectId));
+        upload.once("error", reject);
+        upload.end(body);
+      });
+      const rawPath = `/api/files/raw/${id.toHexString()}`;
       return res.status(201).json({ name: fileName, size: body.length, contentType, rawPath, rawUrl: rawPath });
     } catch (error) {
-      console.error("[Files] upload failed", error instanceof Error ? error.message : error);
-      return res.status(503).json({ error: "Storage unavailable" });
+      console.error("[Files] GridFS upload failed", error instanceof Error ? error.message : error);
+      return res.status(503).json({ error: "MongoDB storage unavailable" });
     }
   });
 }
