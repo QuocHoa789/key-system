@@ -1,7 +1,9 @@
 import type { Express, Request } from "express";
 import path from "node:path";
+import { parse as parseCookieHeader } from "cookie";
 import { storageGetSignedUrl, storagePut } from "./storage";
 import { sdk } from "./_core/sdk";
+import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "./_core/adminAuth";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const SAFE_EXTENSIONS = new Set([".txt", ".lua", ".js", ".ts", ".json", ".css", ".html", ".md", ".xml", ".yml", ".yaml"]);
@@ -14,11 +16,13 @@ function safeFileName(value: string) {
 }
 
 async function requireAdmin(req: Request) {
+  const adminToken = parseCookieHeader(req.headers.cookie ?? "")[ADMIN_SESSION_COOKIE];
+  if (await verifyAdminSession(adminToken)) return true;
   try {
     const user = await sdk.authenticateRequest(req);
-    return user.role === "admin" ? user : null;
+    return user.role === "admin";
   } catch {
-    return null;
+    return false;
   }
 }
 
