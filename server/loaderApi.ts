@@ -26,7 +26,42 @@ function packPayload(source: Buffer, sessionToken: string) {
   return packed.toString("base64");
 }
 
+const BOOTSTRAP_TEMPLATE = String.raw`local H=game:GetService("HttpService")
+local I="__FILE_ID__"
+local A="/api/v1/loader"
+local R=(syn and syn.request) or (http and http.request) or request
+if not R then error("HTTP request is not supported") end
+local function P(p,b)local x=R({Url=A..p,Method="POST",Headers={["Content-Type"]="application/json"},Body=H:JSONEncode(b)});local s=x.StatusCode or x.Status or 0;if s<200 or s>=300 then error("KeyForge loader HTTP "..s)end;return H:JSONDecode(x.Body or x.body or "")end
+local B="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local function D(v)v=v:gsub("[^"..B.."=]",""):gsub(".",function(c)if c=="="then return""end local n=B:find(c,1,true)-1 local z=""for i=6,1,-1 do z=z..((n%2^i-n%2^(i-1)>0)and"1"or"0")end return z end)local o={}for z in v:gmatch("%d%d%d?%d?%d?%d?%d?%d?")do if#z==8 then local n=0 for i=1,8 do if z:sub(i,i)=="1"then n=n+2^(8-i)end end o[#o+1]=string.char(n)end end return table.concat(o)end
+local C="client-"..tostring(game.PlaceId).."-"..tostring(game.JobId~=""and game.JobId or os.time())
+local S=P("/session",{fileId=I,clientId=C})
+if S.ok~=true or type(S.sessionToken)~="string"then error("KeyForge file is disabled or unavailable")end
+local Q=P("/payload",{sessionToken=S.sessionToken})
+if Q.ok~=true or Q.algorithm~="packed-add-v1"or type(Q.payload)~="string"then error("KeyForge payload unavailable")end
+local x=D(Q.payload)local o={}for i=1,#x do o[i]=string.char((string.byte(x,i)-string.byte(S.sessionToken,((i-1)%#S.sessionToken)+1))%256)end
+local f,e=(loadstring or load)(table.concat(o),"=KeyForgePayload")if not f then error(e)end return f()`;
+
+function bootstrapSource(fileId: string) {
+  return BOOTSTRAP_TEMPLATE.replace("__FILE_ID__", fileId);
+}
+
 export function registerLoaderApi(app: Express) {
+  app.get("/api/v1/loader/:fileId.lua", async (req, res) => {
+    const fileId = String(req.params.fileId ?? "");
+    if (!ObjectId.isValid(fileId)) return res.status(404).type("text/plain").send("-- invalid loader id");
+    try {
+      const db = await getDb();
+      if (!db) return res.status(503).type("text/plain").send("-- database unavailable");
+      const file = await db.collection("files.files").findOne({ _id: new ObjectId(fileId) });
+      if (!file) return res.status(404).type("text/plain").send("-- loader not found");
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+      return res.type("text/plain").send(bootstrapSource(fileId));
+    } catch {
+      return res.status(503).type("text/plain").send("-- loader unavailable");
+    }
+  });
+
   app.post("/api/v1/loader/session", sessionLimiter, async (req, res) => {
     const fileId = typeof req.body?.fileId === "string" ? req.body.fileId : "";
     const clientId = typeof req.body?.clientId === "string" ? req.body.clientId : "";
