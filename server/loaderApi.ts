@@ -19,6 +19,13 @@ function clientIp(req: Request) {
   return req.ip || req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() || "unknown";
 }
 
+function packPayload(source: Buffer, sessionToken: string) {
+  const key = Buffer.from(sessionToken, "utf8");
+  const packed = Buffer.allocUnsafe(source.length);
+  for (let i = 0; i < source.length; i += 1) packed[i] = (source[i] + key[i % key.length]) & 255;
+  return packed.toString("base64");
+}
+
 export function registerLoaderApi(app: Express) {
   app.post("/api/v1/loader/session", sessionLimiter, async (req, res) => {
     const fileId = typeof req.body?.fileId === "string" ? req.body.fileId : "";
@@ -56,7 +63,8 @@ export function registerLoaderApi(app: Express) {
       const source = Buffer.concat(chunks.map(chunk => Buffer.from(chunk.data.buffer ?? chunk.data)));
       res.setHeader("Cache-Control", "no-store");
       res.setHeader("Content-Type", "application/json; charset=utf-8");
-      return res.json({ ok: true, source: source.toString("utf8"), expiresIn: Math.max(1, Number(payload.exp ? payload.exp - Math.floor(Date.now() / 1000) : 60)) });
+      res.setHeader("X-KeyForge-Payload", "packed-add-v1");
+      return res.json({ ok: true, algorithm: "packed-add-v1", payload: packPayload(source, sessionToken), expiresIn: Math.max(1, Number(payload.exp ? payload.exp - Math.floor(Date.now() / 1000) : 60)) });
     } catch {
       return res.status(401).json({ ok: false, reason: "invalid_or_expired_session" });
     }
