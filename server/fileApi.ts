@@ -90,25 +90,7 @@ export function registerFileApi(app: Express) {
   });
 
   app.get("/api/files/raw/:id", async (req, res) => {
-    if (!(await requireAdmin(req))) return res.status(410).json({ error: "Public raw source disabled. Use the bootstrapper." });
-    const id = String(req.params.id ?? "");
-    if (!ObjectId.isValid(id)) return res.status(400).json({ error: "Invalid file id" });
-    try {
-      const db = await getDb();
-      if (!db) throw new Error("MongoDB is not configured");
-      const objectId = new ObjectId(id);
-      const file = await db.collection("files.files").findOne({ _id: objectId });
-      if (!file) return res.status(404).json({ error: "File not found" });
-      if (file.metadata?.enabled === false) return res.status(404).json({ error: "File is disabled" });
-      const contentType = typeof file.metadata?.contentType === "string" ? file.metadata.contentType : "text/plain";
-      res.setHeader("Content-Type", contentType);
-      res.setHeader("Content-Disposition", "inline");
-      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-      return (await getBucket()).openDownloadStream(objectId).pipe(res);
-    } catch (error) {
-      console.error("[Files] raw download failed", error instanceof Error ? error.message : error);
-      return res.status(404).json({ error: "File not found" });
-    }
+    return res.status(410).json({ error: "Raw source endpoint disabled. Use the bootstrap loader." });
   });
 
   app.post("/api/files/upload", async (req, res, next) => {
