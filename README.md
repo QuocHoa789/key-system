@@ -64,6 +64,12 @@ Render tự cấp `PORT`; server bind trên `0.0.0.0` và không hard-code port 
 
 ## License REST API
 
+## Bootstrap loader
+
+`bootstrapper.lua` là loader mẫu cho file đã upload. Thay `PASTE_FILE_ID_HERE` bằng ID file trong dashboard rồi chạy bootstrapper. Loader gọi `POST /api/v1/loader/session`, nhận session token sống 90 giây, sau đó gọi `/api/v1/loader/payload`. Chỉ file đang bật mới được cấp payload; file tắt trả về `disabled`. Raw source public đã bị khóa và trả `410`, chỉ admin đã đăng nhập mới xem được raw route.
+
+Bootstrapper giúp ngăn việc mở raw URL để lấy source và giới hạn replay bằng token ngắn hạn/rate limit. Vì payload cuối cùng vẫn phải được nạp trên máy client, không thể cam kết chống tuyệt đối dump hoặc hook sau khi script đã chạy.
+
 Ba endpoint dành cho ứng dụng client/desktop/game:
 
 ```text

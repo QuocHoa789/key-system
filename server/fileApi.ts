@@ -48,6 +48,7 @@ export function registerFileApi(app: Express) {
         enabled: file.metadata?.enabled !== false,
         uploadedAt: file.uploadDate,
         rawPath: `/api/files/raw/${String(file._id)}`,
+        loaderPath: `/api/v1/loader/session`,
       })));
     } catch (error) {
       console.error("[Files] list failed", error instanceof Error ? error.message : error);
@@ -89,6 +90,7 @@ export function registerFileApi(app: Express) {
   });
 
   app.get("/api/files/raw/:id", async (req, res) => {
+    if (!(await requireAdmin(req))) return res.status(410).json({ error: "Public raw source disabled. Use the bootstrapper." });
     const id = String(req.params.id ?? "");
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: "Invalid file id" });
     try {
