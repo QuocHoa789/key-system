@@ -9,7 +9,6 @@ import { registerOAuthRoutes } from "./oauth";
 import { publicPlatformScript } from "./publicConfig";
 import { appRouter } from "../routers";
 import { registerLicenseApi } from "../licenseApi";
-import { registerLoaderApi } from "../loaderApi";
 import { fileUploadLimit, registerFileApi } from "../fileApi";
 import { createContext } from "./context";
 import { ENV } from "./env";
@@ -104,7 +103,6 @@ async function startServer() {
   app.use("/api/trpc/admin.login", loginRateLimit);
   app.use("/api/trpc/keys.activate", activationRateLimit);
   registerLicenseApi(app);
-  registerLoaderApi(app);
   registerOAuthRoutes(app);
   app.use(
     "/api/trpc",
