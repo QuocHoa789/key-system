@@ -33,6 +33,22 @@ async function getBucket() {
   return new GridFSBucket(db, { bucketName: "files" });
 }
 
+async function readGridFile(id: ObjectId) {
+  const chunks: Buffer[] = [];
+  for await (const chunk of (await getBucket()).openDownloadStream(id)) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}
+
+async function uploadGridFile(fileName: string, contentType: string, body: Buffer, enabled = true) {
+  const bucket = await getBucket();
+  return new Promise<ObjectId>((resolve, reject) => {
+    const upload = bucket.openUploadStream(fileName, { metadata: { contentType, originalName: fileName, enabled } });
+    upload.once("finish", () => resolve(upload.id as ObjectId));
+    upload.once("error", reject);
+    upload.end(body);
+  });
+}
+
 export function registerFileApi(app: Express) {
   app.get("/api/files/admin/list", async (req, res) => {
     if (!(await requireAdmin(req))) return res.status(403).json({ error: "Admin access required" });
@@ -88,6 +104,49 @@ export function registerFileApi(app: Express) {
     }
   });
 
+  app.get("/api/files/admin/:id/content", async (req, res) => {
+    if (!(await requireAdmin(req))) return res.status(403).json({ error: "Admin access required" });
+    const id = String(req.params.id ?? "");
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: "Invalid file id" });
+    try {
+      const db = await getDb();
+      if (!db) throw new Error("MongoDB is not configured");
+      const objectId = new ObjectId(id);
+      const file = await db.collection("files.files").findOne({ _id: objectId });
+      if (!file) return res.status(404).json({ error: "File not found" });
+      return res.json({ id, name: String(file.metadata?.originalName ?? file.filename), content: (await readGridFile(objectId)).toString("utf8") });
+    } catch (error) {
+      console.error("[Files] content read failed", error instanceof Error ? error.message : error);
+      return res.status(404).json({ error: "File not found" });
+    }
+  });
+
+  app.put("/api/files/admin/:id/content", async (req, res) => {
+    if (!(await requireAdmin(req))) return res.status(403).json({ error: "Admin access required" });
+    const id = String(req.params.id ?? "");
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: "Invalid file id" });
+    const fileName = safeFileName(req.get("x-file-name") ?? "") ?? safeFileName(req.get("x-original-name") ?? "");
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    if (!fileName) return res.status(400).json({ error: "Unsupported or invalid file name" });
+    if (body.length === 0) return res.status(400).json({ error: "File is empty" });
+    if (body.length > MAX_FILE_BYTES) return res.status(413).json({ error: "File exceeds 10 MB limit" });
+    try {
+      const db = await getDb();
+      if (!db) throw new Error("MongoDB is not configured");
+      const objectId = new ObjectId(id);
+      const current = await db.collection("files.files").findOne({ _id: objectId });
+      if (!current) return res.status(404).json({ error: "File not found" });
+      const enabled = current.metadata?.enabled !== false;
+      const newId = await uploadGridFile(fileName, req.get("content-type")?.split(";", 1)[0] || "text/plain", body, enabled);
+      await (await getBucket()).delete(objectId);
+      const newIdText = newId.toHexString();
+      return res.json({ id: newIdText, name: fileName, size: body.length, enabled, rawPath: `/api/files/raw/${newIdText}` });
+    } catch (error) {
+      console.error("[Files] content update failed", error instanceof Error ? error.message : error);
+      return res.status(503).json({ error: "MongoDB storage unavailable" });
+    }
+  });
+
   app.get("/api/files/raw/:id", async (req, res) => {
     const id = String(req.params.id ?? "");
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: "Invalid file id" });
@@ -121,13 +180,7 @@ export function registerFileApi(app: Express) {
     if (body.length === 0) return res.status(400).json({ error: "File is empty" });
     if (body.length > MAX_FILE_BYTES) return res.status(413).json({ error: "File exceeds 10 MB limit" });
     try {
-      const bucket = await getBucket();
-      const id = await new Promise<ObjectId>((resolve, reject) => {
-      const upload = bucket.openUploadStream(fileName, { metadata: { contentType, originalName: fileName, enabled: true } });
-        upload.once("finish", () => resolve(upload.id as ObjectId));
-        upload.once("error", reject);
-        upload.end(body);
-      });
+      const id = await uploadGridFile(fileName, contentType, body);
       const rawPath = `/api/files/raw/${id.toHexString()}`;
       return res.status(201).json({ name: fileName, size: body.length, contentType, rawPath, rawUrl: rawPath });
     } catch (error) {

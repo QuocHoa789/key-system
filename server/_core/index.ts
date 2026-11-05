@@ -88,6 +88,7 @@ async function startServer() {
   });
   app.use(applyCors);
   app.use("/api/files/upload", express.raw({ type: "*/*", limit: fileUploadLimit }));
+  app.use("/api/files/admin/:id/content", express.raw({ type: "*/*", limit: fileUploadLimit }));
   registerFileApi(app);
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ limit: "64kb", extended: true }));

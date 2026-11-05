@@ -8,6 +8,8 @@ import {
   BarChart3,
   Check,
   CheckCircle2,
+  ClipboardPaste,
+  Code2,
   ChevronDown,
   Clock3,
   Copy,
@@ -23,7 +25,9 @@ import {
   Menu,
   MoreHorizontal,
   Plus,
+  Pencil,
   RefreshCw,
+  Save,
   Search,
   ShieldCheck,
   Sparkles,
@@ -289,8 +293,55 @@ function EmptyState({ icon: Icon, title, copy }: { icon: typeof Activity; title:
   return <div className="empty-state"><span className="empty-icon"><Icon size={20} /></span><strong>{title}</strong><span>{copy}</span></div>;
 }
 
+function CodeEditorPanel({ file, onClose, onSaved }: { file: { id: string; name: string; content?: string } | null; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(file?.name ?? "script.lua");
+  const [content, setContent] = useState(file?.content ?? "");
+  const [busy, setBusy] = useState(Boolean(file?.id));
+  const isEditing = Boolean(file?.id);
+
+  useEffect(() => {
+    if (!file?.id) return;
+    let cancelled = false;
+    void fetch(`/api/files/admin/${file.id}/content`, { credentials: "include" })
+      .then(async response => {
+        const data = await response.json() as { content?: string; error?: string };
+        if (!response.ok) throw new Error(data.error || "Không thể đọc nội dung file.");
+        if (!cancelled) setContent(data.content ?? "");
+      })
+      .catch(error => { if (!cancelled) toast.error(error instanceof Error ? error.message : "Không thể đọc nội dung file."); })
+      .finally(() => { if (!cancelled) setBusy(false); });
+    return () => { cancelled = true; };
+  }, [file?.id]);
+
+  async function save() {
+    const trimmedName = name.trim();
+    if (!trimmedName) return toast.error("Nhập tên file.");
+    if (!content) return toast.error("Code không được để trống.");
+    if (new TextEncoder().encode(content).length > 10 * 1024 * 1024) return toast.error("Code tối đa 10 MB.");
+    setBusy(true);
+    try {
+      const endpoint = isEditing ? `/api/files/admin/${file!.id}/content` : "/api/files/upload";
+      const response = await fetch(endpoint, { method: isEditing ? "PUT" : "POST", credentials: "include", headers: { "Content-Type": "text/plain; charset=utf-8", "X-File-Name": trimmedName }, body: content });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Không thể lưu code.");
+      toast.success(isEditing ? "Đã cập nhật và upload lại code." : "Đã paste code và upload thành công.");
+      onSaved();
+      onClose();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Không thể lưu code."); }
+    finally { setBusy(false); }
+  }
+
+  return <div className="modal-backdrop" onMouseDown={event => event.target === event.currentTarget && onClose()}><div className="modal-card code-editor-modal">
+    <div className="modal-head"><div><div className="eyebrow"><Code2 size={13} /> {isEditing ? "EDIT HOSTED CODE" : "PASTE CODE"}</div><h2>{isEditing ? "Edit & upload" : "Paste a script"}</h2></div><button className="icon-button" onClick={onClose} aria-label="Đóng"><X size={18} /></button></div>
+    <p className="modal-copy">Dán code trực tiếp, chỉnh sửa rồi lưu lên MongoDB GridFS. File tối đa 10 MB.</p>
+    <div className="form-stack"><div><label className="field-label">FILE NAME <span>.lua / .js / .txt...</span></label><input className="text-input" value={name} onChange={event => setName(event.target.value)} placeholder="script.lua" disabled={busy && isEditing} /></div><div><label className="field-label">SOURCE CODE</label><textarea className="code-editor-textarea" value={content} onChange={event => setContent(event.target.value)} placeholder="Dán source code vào đây..." spellCheck={false} disabled={busy && isEditing} autoFocus={!isEditing} /></div></div>
+    <div className="code-editor-footer"><span>{content.length.toLocaleString("vi-VN")} ký tự</span><div className="modal-actions"><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={() => void save()} disabled={busy || !content.trim()}>{busy ? <RefreshCw size={16} className="spin" /> : isEditing ? <Save size={16} /> : <ClipboardPaste size={16} />} {busy ? "Đang xử lý..." : isEditing ? "Save & upload" : "Paste & upload"}</Button></div></div>
+  </div></div>;
+}
+
 function FilesView() {
   const [busy, setBusy] = useState(false);
+  const [editor, setEditor] = useState<{ id: string; name: string } | null | "new">(null);
   const [files, setFiles] = useState<Array<{ id: string; name: string; rawPath: string; size: number; enabled: boolean }>>([]);
   const [loading, setLoading] = useState(true);
   async function loadFiles() {
@@ -336,7 +387,7 @@ function FilesView() {
   }
   function copyRaw(rawPath: string) { navigator.clipboard?.writeText(new URL(rawPath, window.location.origin).toString()); toast.success("Đã copy raw link."); }
   const activeCount = files.filter(file => file.enabled).length;
-  return <div className="content-wrap raw-files-page"><div className="raw-files-hero"><div><div className="eyebrow"><FileUp size={13} /> RAW FILE HOSTING</div><h2>Ship scripts with control.</h2><p>Quản lý file raw tập trung. Bật để cho phép loader đọc nội dung, tắt để raw URL trả 404 ngay lập tức.</p></div><label className="raw-upload-zone" htmlFor="raw-upload"><FileUp size={21} /><div><strong>{busy ? "Đang upload..." : "Upload file"}</strong><span>Text/code · tối đa 10 MB</span></div><input id="raw-upload" type="file" accept=".txt,.lua,.js,.ts,.json,.css,.html,.md,.xml,.yml,.yaml" onChange={upload} disabled={busy} /></label></div><div className="raw-files-stats"><div className="raw-stat"><span>TOTAL FILES</span><strong>{files.length}</strong></div><div className="raw-stat"><span>LOAD ENABLED</span><strong>{activeCount}</strong></div><div className="raw-stat"><span>DISABLED</span><strong>{files.length - activeCount}</strong></div></div><section className="raw-list-panel"><div className="raw-list-head"><div><div className="panel-kicker">FILE REGISTRY</div><h2>Uploaded files</h2></div><span>{files.length} file{files.length === 1 ? "" : "s"}</span></div>{loading ? <div className="table-loading"><RefreshCw className="spin" size={17} /> Đang tải files...</div> : files.length === 0 ? <EmptyState icon={FileUp} title="Chưa có file" copy="Upload file đầu tiên để tạo raw link." /> : <div className="raw-file-list">{files.map(file => <div key={file.id} className="raw-file-card" style={{ opacity: file.enabled ? 1 : .58 }}><span className="raw-file-icon"><FileUp size={16} /></span><div><div className="raw-file-name"><span className={`status-dot ${file.enabled ? "dot-active" : "dot-danger"}`} /><strong>{file.name}</strong></div><span className="raw-file-meta">{Math.ceil(file.size / 1024)} KB · {new URL(file.rawPath, window.location.origin).toString()}</span></div><div className="raw-file-actions"><button className="raw-action" onClick={() => copyRaw(file.rawPath)}><Copy size={13} /> Copy</button><button className="raw-action" onClick={() => void toggle(file)}>{file.enabled ? "Tắt" : "Bật"}</button><button className="raw-action raw-action-danger" onClick={() => void remove(file)}>Xóa</button></div></div>)}</div>}</section></div>;
+  return <div className="content-wrap raw-files-page"><div className="raw-files-hero"><div><div className="eyebrow"><FileUp size={13} /> RAW FILE HOSTING</div><h2>Ship scripts with control.</h2><p>Upload file từ máy hoặc paste code trực tiếp, sau đó quản lý trạng thái load ngay trên dashboard.</p></div><div className="raw-upload-actions"><Button onClick={() => setEditor("new")}><ClipboardPaste size={16} /> Paste code</Button><label className="raw-upload-zone" htmlFor="raw-upload"><FileUp size={21} /><div><strong>{busy ? "Đang upload..." : "Upload file"}</strong><span>Text/code · tối đa 10 MB</span></div><input id="raw-upload" type="file" accept=".txt,.lua,.js,.ts,.json,.css,.html,.md,.xml,.yml,.yaml" onChange={upload} disabled={busy} /></label></div></div><div className="raw-files-stats"><div className="raw-stat"><span>TOTAL FILES</span><strong>{files.length}</strong></div><div className="raw-stat"><span>LOAD ENABLED</span><strong>{activeCount}</strong></div><div className="raw-stat"><span>DISABLED</span><strong>{files.length - activeCount}</strong></div></div><section className="raw-list-panel"><div className="raw-list-head"><div><div className="panel-kicker">FILE REGISTRY</div><h2>Uploaded files</h2></div><span>{files.length} file{files.length === 1 ? "" : "s"}</span></div>{loading ? <div className="table-loading"><RefreshCw className="spin" size={17} /> Đang tải files...</div> : files.length === 0 ? <EmptyState icon={FileUp} title="Chưa có file" copy="Upload file hoặc paste code đầu tiên." /> : <div className="raw-file-list">{files.map(file => <div key={file.id} className="raw-file-card" style={{ opacity: file.enabled ? 1 : .58 }}><span className="raw-file-icon"><FileUp size={16} /></span><div><div className="raw-file-name"><span className={`status-dot ${file.enabled ? "dot-active" : "dot-danger"}`} /><strong>{file.name}</strong></div><span className="raw-file-meta">{Math.ceil(file.size / 1024)} KB · {new URL(file.rawPath, window.location.origin).toString()}</span></div><div className="raw-file-actions"><button className="raw-action" onClick={() => copyRaw(file.rawPath)}><Copy size={13} /> Copy</button><button className="raw-action" onClick={() => setEditor({ id: file.id, name: file.name })}><Pencil size={13} /> Edit</button><button className="raw-action" onClick={() => void toggle(file)}>{file.enabled ? "Tắt" : "Bật"}</button><button className="raw-action raw-action-danger" onClick={() => void remove(file)}>Xóa</button></div></div>)}</div>}</section>{editor && <CodeEditorPanel file={editor === "new" ? null : editor} onClose={() => setEditor(null)} onSaved={() => void loadFiles()} />}</div>;
 }
 
 export default function Home() {
